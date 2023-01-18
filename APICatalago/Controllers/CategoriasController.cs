@@ -1,94 +1,118 @@
 ﻿using APICatalago.Context;
+using APICatalago.DTOs;
 using APICatalago.Models;
+using APICatalago.Pagination;
+using APICatalago.Repository;
+using AutoMapper;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Newtonsoft.Json;
 
-namespace APICatalago.Controllers
+namespace APICatalago.Controllers;
+
+[Authorize(AuthenticationSchemes = "Bearer")]
+[Route("api/[Controller]")]
+[ApiController]
+public class CategoriasController : ControllerBase
 {
-    [Route("[controller]")]
-    [ApiController]
-    public class CategoriasController : ControllerBase
+    private readonly IUnitOfWork _context;
+    private readonly IMapper _mapper;
+
+    public CategoriasController(IUnitOfWork context, IMapper mapper)
     {
-        private readonly AppDbContext _context;
+        _context = context;
+        _mapper = mapper;
+    }
 
-        public CategoriasController(AppDbContext context)
+    [HttpGet("produtos")]
+    public async Task<ActionResult<IEnumerable<CategoriaDTO>>> GetCategoriasProdutos()
+    {
+        var categorias = await _context.CategoriaRepository.GetCategoriasProdutos();
+        var categoriasDto = _mapper.Map<List<CategoriaDTO>>(categorias);
+
+        return categoriasDto;
+    }
+
+    [HttpGet]
+    public async Task<ActionResult<IEnumerable<CategoriaDTO>>> 
+        Get([FromQuery] CategoriasParameters categoriasParameters)
+    {
+        var categorias = await _context.CategoriaRepository.
+            GetCategorias(categoriasParameters);
+
+        var metadata = new
         {
-            _context = context;
+            categorias.TotalCount,
+            categorias.PageSize,
+            categorias.CurrentPage,
+            categorias.TotalPages,
+            categorias.HasNext,
+            categorias.HasPrevious
+        };
+
+        Response.Headers.Add("X-Pagination", JsonConvert.SerializeObject(metadata));
+
+        var categoriasDto = _mapper.Map<List<CategoriaDTO>>(categorias);
+        return categoriasDto;
+    }
+
+    [HttpGet("{id}", Name = "ObterCategoria")]
+    public async Task<ActionResult<CategoriaDTO>> Get(int id)
+    {
+        var categoria = await _context.CategoriaRepository.GetById(p => p.CategoriaId == id);
+
+        if (categoria == null)
+        {
+            return NotFound("Categoria não encontrada...");
         }
 
-        [HttpGet("produtos")]
-        public ActionResult<IEnumerable<Categoria>> GetCategoriasProdutos()
+        var categoriaDto = _mapper.Map<CategoriaDTO>(categoria);
+        return categoriaDto;
+    }
+
+    [HttpPost]
+    public async Task<ActionResult> Post([FromBody] CategoriaDTO categoriaDto)
+    {
+        var categoria = _mapper.Map<Categoria>(categoriaDto);
+
+        _context.CategoriaRepository.Add(categoria);
+        await _context.Commit();
+
+        var categoriaDTO = _mapper.Map<CategoriaDTO>(categoria);
+
+        return new CreatedAtRouteResult("ObterCategoria", new { id = categoria.CategoriaId }, categoriaDTO);
+    }
+
+    [HttpPatch("{id}")]
+    public async Task<ActionResult> Patch(int id, [FromBody] CategoriaDTO categoriaDto)
+    {
+        if (id != categoriaDto.CategoriaId)
         {
-            return _context.Categorias.Include(p => p.Produtos).ToList();
+            return BadRequest();
         }
 
-        [HttpGet]
-        public ActionResult<IEnumerable<Categoria>> Get()
+        var categoria = _mapper.Map<Categoria>(categoriaDto);
+
+        _context.CategoriaRepository.Update(categoria);
+        await _context.Commit();
+
+        return Ok(categoria);
+    }
+
+    [HttpDelete("{id}")]
+    public async Task<ActionResult<CategoriaDTO>> Delete(int id)
+    {
+        var categoria = await _context.CategoriaRepository.GetById(p => p.CategoriaId == id);
+
+        if (categoria is null)
         {
-            try
-            {
-                return _context.Categorias.ToList();
-            }
-            catch (Exception)
-            {
-                throw;
-            }
-
+            return NotFound("Categoria não encontrada...");
         }
+        _context.CategoriaRepository.Delete(categoria);
+        await _context.Commit();
 
-        [HttpGet("{id:int}", Name = "ObterCategoria")]
-        public ActionResult<Categoria> Get(int id)
-        {
-            var categoria = _context.Categorias.FirstOrDefault(p => p.CategoriaId == id);
-
-            if (categoria == null)
-            {
-                return NotFound("Categoria não encontrada...");
-            }
-            return Ok(categoria);
-        }
-
-        [HttpPost]
-        public ActionResult Post(Categoria categoria)
-        {
-            if (categoria is null)
-                return BadRequest();
-
-            _context.Categorias.Add(categoria);
-            _context.SaveChanges();
-
-            return new CreatedAtRouteResult("ObterCategoria", new { id = categoria.CategoriaId }, categoria);
-        }
-
-        [HttpPatch("{id:int}")]
-        public ActionResult Patch(int id, Categoria categoria)
-        {
-            if (id != categoria.CategoriaId)
-            {
-                return BadRequest();
-            }
-
-            _context.Entry(categoria).State = EntityState.Modified;
-            _context.SaveChanges();
-
-            return Ok(categoria);
-        }
-
-        [HttpDelete("{id:int}")]
-        public ActionResult Delete(int id)
-        {
-            var categoria = _context.Categorias.FirstOrDefault(c => c.CategoriaId == id);
-            //var categoria = _context.Categorias.Find(id);  OPCAO QUANDO O ID FOR CHAVE PRIMARIA
-
-            if (categoria is null)
-            {
-                return NotFound("Categoria não encontrada...");
-            }
-            _context.Categorias.Remove(categoria);
-            _context.SaveChanges();
-
-            return Ok(categoria);
-        }
+        return Ok(categoria);
     }
 }
